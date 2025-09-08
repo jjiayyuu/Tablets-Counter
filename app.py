@@ -13,7 +13,7 @@ def load_model():
     """Load YOLO model (cached for performance)"""
     try:
         # Load your trained YOLO model
-        model = YOLO('/content/drive/MyDrive/Model (GPU)/runs/detect/train/weights/best.pt')
+        model = YOLO('best.pt')
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
