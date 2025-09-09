@@ -78,7 +78,7 @@ use_camera = st.checkbox("Use Camera")
 # ---------- File Upload Mode ----------
 if uploaded_file is not None and not use_camera:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.image(boxed_image, caption=f"Detected Tablets: {count}", use_container_width=True)
 
     if st.button("Count Tablets from File", type="primary"):
         count, boxed_image = model_count_tablets_with_boxes(image, model)
@@ -93,7 +93,7 @@ elif use_camera:
 
     if camera_file is not None:
         image = Image.open(camera_file)
-        st.image(image, caption="Captured Image", use_container_width=True)
+        st.image(boxed_image, caption=f"Detected Tablets: {count}", use_container_width=True)
 
         if st.button("Count Tablets from Camera", type="primary"):
             count, boxed_image = model_count_tablets_with_boxes(image, model)
