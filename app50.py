@@ -10,7 +10,8 @@ st.set_page_config(page_title="Tablet Counter", layout="wide")
 def load_model():
     """Load YOLO model (cached for performance)"""
     try:
-        model = YOLO('best50.pt')
+        # Make sure best.pt is in the same folder as app50.py
+        model = YOLO("best50.pt")
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
@@ -36,7 +37,7 @@ def model_count_tablets(image, model):
 
 # ---------------- STREAMLIT UI ----------------
 st.title("Tablet Counter")
-st.write("Upload an image to count the number of tablets using YOLO")
+st.write("Upload an image OR use your camera to count tablets")
 
 # Load model
 with st.spinner("Loading model..."):
@@ -52,16 +53,25 @@ else:
 uploaded_file = st.file_uploader(
     "Choose an image...",
     type=["jpg", "jpeg", "png"],
-    help="Upload an image containing tablets to count"
+    help="Upload an image containing tablets"
 )
 
+# Camera input
+camera_file = st.camera_input("Or take a picture with your camera")
+
+# Pick image source
+image = None
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
+elif camera_file is not None:
+    image = Image.open(camera_file)
 
+# If an image is provided
+if image is not None:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.image(image, caption="Uploaded Image", use_column_width=True)
+        st.image(image, caption="Selected Image", use_column_width=True)
 
     with col2:
         st.write("### Analysis")
