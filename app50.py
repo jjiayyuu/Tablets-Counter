@@ -82,9 +82,9 @@ def live_pill_detection_streamlit(model, confidence=0.45):
 
 # ---------------- STREAMLIT UI ----------------
 st.title("💊 Tablet Counter")
-st.markdown("1. Upload an image 🖼️")
-st.markdown("2. Use camera 📸 to take an image")
-st.markdown("3. Live webcam 🎥 detection")
+st.write("1. Upload an image 🖼️")
+st.write("2. Use camera 📸 to take an image")
+st.write("3. Live webcam 🎥 detection")
 
 # Load model
 with st.spinner("Loading model..."):
