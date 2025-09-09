@@ -1,6 +1,8 @@
 import streamlit as st
 from PIL import Image
 import numpy as np
+import cv2
+import time
 from ultralytics import YOLO
 
 # Configure Streamlit page
@@ -10,8 +12,7 @@ st.set_page_config(page_title="Tablet Counter", layout="wide")
 def load_model():
     """Load YOLO model (cached for performance)"""
     try:
-        # Make sure best.pt is in the same folder as app50.py
-        model = YOLO("best50.pt")
+        model = YOLO("best50.pt")  # put best.pt in same folder
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
@@ -29,7 +30,6 @@ def model_count_tablets(image, model):
         for result in results:
             if result.boxes is not None:
                 tablet_count += len(result.boxes)
-
         return tablet_count
     except Exception as e:
         st.error(f"Error during inference: {str(e)}")
@@ -37,7 +37,7 @@ def model_count_tablets(image, model):
 
 # ---------------- STREAMLIT UI ----------------
 st.title("Tablet Counter")
-st.write("Upload an image OR use your camera to count tablets")
+st.write("Upload an image OR use your camera for live scan")
 
 # Load model
 with st.spinner("Loading model..."):
@@ -50,39 +50,79 @@ else:
     st.success("Model loaded successfully!")
 
 # File uploader
-uploaded_file = st.file_uploader(
-    "Choose an image...",
-    type=["jpg", "jpeg", "png"],
-    help="Upload an image containing tablets"
-)
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
-# Camera input
-camera_file = st.camera_input("Or take a picture with your camera")
+# Camera live scan option
+use_camera = st.checkbox("Use Camera for Live Scan")
 
-# Pick image source
-image = None
-if uploaded_file is not None:
+# ---------- File Upload Mode ----------
+if uploaded_file is not None and not use_camera:
     image = Image.open(uploaded_file)
-elif camera_file is not None:
-    image = Image.open(camera_file)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-# If an image is provided
-if image is not None:
-    col1, col2 = st.columns(2)
+    if st.button("Count Tablets", type="primary"):
+        with st.spinner("Analyzing image..."):
+            count = model_count_tablets(image, model)
 
-    with col1:
-        st.image(image, caption="Selected Image", use_column_width=True)
+        if count > 0:
+            st.success(f"Number of tablets detected: **{count}**")
+        else:
+            st.warning("No tablets detected in the image")
 
-    with col2:
-        st.write("### Analysis")
+# ---------- Live Camera Mode ----------
+elif use_camera:
+    st.info("Starting camera... hold still for 5 seconds to scan")
 
-        if st.button("Count Tablets", type="primary"):
-            with st.spinner("Analyzing image..."):
+    run = st.button("Start Live Scan")
+    if run:
+        cap = cv2.VideoCapture(0)
+        prev_frame = None
+        still_start = None
+        result_image = None
+
+        frame_placeholder = st.empty()
+        result_placeholder = st.empty()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_placeholder.image(frame_rgb, channels="RGB")
+
+            # Detect motion by frame difference
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+            if prev_frame is None:
+                prev_frame = gray
+                continue
+
+            frame_delta = cv2.absdiff(prev_frame, gray)
+            thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
+            motion_level = np.sum(thresh)
+
+            if motion_level < 1e6:  # low movement threshold
+                if still_start is None:
+                    still_start = time.time()
+                elif time.time() - still_start >= 5:  # 5 seconds stable
+                    result_image = frame_rgb
+                    break
+            else:
+                still_start = None
+
+            prev_frame = gray
+
+        cap.release()
+
+        if result_image is not None:
+            st.image(result_image, caption="Captured Frame", use_column_width=True)
+            with st.spinner("Analyzing captured frame..."):
+                image = Image.fromarray(result_image)
                 count = model_count_tablets(image, model)
 
             if count > 0:
-                st.success(f"Number of tablets detected: **{count}**")
+                result_placeholder.success(f"Number of tablets detected: **{count}**")
             else:
-                st.warning("No tablets detected in the image")
-
-            st.info("Tip: For best results, ensure good lighting and clear tablet visibility")
+                result_placeholder.warning("No tablets detected in the captured frame")
