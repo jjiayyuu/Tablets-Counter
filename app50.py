@@ -52,7 +52,7 @@ use_camera = st.checkbox("Use Camera for Live Scan")
 # ---------- File Upload Mode ----------
 if uploaded_file is not None and not use_camera:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+    st.image(image, caption="Uploaded Image", use_container_width=True)
 
     if st.button("Count Tablets from File", type="primary"):
         count = model_count_tablets(image, model)
@@ -67,7 +67,7 @@ elif use_camera:
 
     if camera_file is not None:
         image = Image.open(camera_file)
-        st.image(image, caption="Captured Image", use_column_width=True)
+        st.image(image, caption="Captured Image", use_container_width=True)
 
         if st.button("Count Tablets from Camera", type="primary"):
             count = model_count_tablets(image, model)
