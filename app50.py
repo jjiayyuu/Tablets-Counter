@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 import numpy as np
 from ultralytics import YOLO
+from PIL import ImageDraw
 
 st.set_page_config(page_title="Tablet Counter", layout="wide")
 
@@ -32,6 +33,31 @@ def model_count_tablets(image, model):
         st.error(f"Error during inference: {str(e)}")
         return 0
 
+def model_count_tablets_with_boxes(image, model):
+    """Run YOLO detection, count tablets, and draw bounding boxes"""
+    if model is None:
+        return 0, image
+
+    try:
+        img_array = np.array(image)
+        results = model(img_array)
+
+        tablet_count = 0
+        draw_image = image.copy()
+        draw = ImageDraw.Draw(draw_image)
+
+        for result in results:
+            if result.boxes is not None:
+                tablet_count += len(result.boxes)
+                for box in result.boxes.xyxy:  # xyxy = [x1, y1, x2, y2]
+                    x1, y1, x2, y2 = map(int, box)
+                    draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
+
+        return tablet_count, draw_image
+    except Exception as e:
+        st.error(f"Error during inference: {str(e)}")
+        return 0, image
+
 # ---------------- STREAMLIT UI ----------------
 st.title("Tablet Counter")
 st.write("Upload an image OR use your camera to count tablets")
@@ -55,7 +81,7 @@ if uploaded_file is not None and not use_camera:
     st.image(image, caption="Uploaded Image", use_container_width=True)
 
     if st.button("Count Tablets from File", type="primary"):
-        count = model_count_tablets(image, model)
+        count, boxed_image = model_count_tablets_with_boxes(image, model)
         if count > 0:
             st.success(f"Number of tablets detected: {count}")
         else:
@@ -70,7 +96,7 @@ elif use_camera:
         st.image(image, caption="Captured Image", use_container_width=True)
 
         if st.button("Count Tablets from Camera", type="primary"):
-            count = model_count_tablets(image, model)
+            count, boxed_image = model_count_tablets_with_boxes(image, model)
             if count > 0:
                 st.success(f"Number of tablets detected: {count}")
             else:
