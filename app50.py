@@ -10,7 +10,7 @@ st.set_page_config(page_title="Tablet Counter", layout="wide")
 def load_model():
     """Load YOLO model (cached for performance)"""
     try:
-        model = YOLO('/content/drive/MyDrive/Model (GPU)/runs/detect/train/weights/best.pt')
+        model = YOLO('best50.pt')
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
