@@ -47,7 +47,7 @@ if model is None:
 uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
 # Camera option
-use_camera = st.checkbox("Use Camera for Live Scan")
+use_camera = st.checkbox("Use Camera")
 
 # ---------- File Upload Mode ----------
 if uploaded_file is not None and not use_camera:
