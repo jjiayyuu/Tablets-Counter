@@ -78,7 +78,7 @@ def live_pill_detection_streamlit(model, confidence=0.45):
 
         time.sleep(0.03)
         
-cap.release()   
+    cap.release()   
 
 # ---------------- STREAMLIT UI ----------------
 st.title("Tablet Counter")
