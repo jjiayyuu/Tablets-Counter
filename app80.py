@@ -8,7 +8,7 @@ st.set_page_config(page_title="Tablet Counter", layout="wide")
 @st.cache_resource
 def load_model():
     try:
-        model = YOLO(r"runs\detect\train (80)\weights\best.pt")  # Make sure best50.pt is in the same folder
+        model = YOLO("best80.pt")  # Make sure best50.pt is in the same folder
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
@@ -82,3 +82,4 @@ elif use_camera:
                 st.success(f"Number of tablets detected: {count}")
             else:
                 st.warning("No tablets detected")
+
