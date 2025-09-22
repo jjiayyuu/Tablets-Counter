@@ -46,174 +46,187 @@ def model_count_tablets_with_boxes(image, model):
         return 0, image
 
 # ==================== Live Webcam Detection ====================
-def live_pill_detection_streamlit(model, confidence=0.45):
-    """Enhanced live pill detection with auto-detection and snapshot capability"""
+def live_detection_interface(model):
+    """Live detection interface using Streamlit's camera input with auto-refresh"""
     
-    # Initialize session state variables
-    if 'detection_active' not in st.session_state:
-        st.session_state.detection_active = True
-    if 'current_frame_with_boxes' not in st.session_state:
-        st.session_state.current_frame_with_boxes = None
-    if 'current_tablet_count' not in st.session_state:
-        st.session_state.current_tablet_count = 0
+    # Initialize session state
     if 'snapshots' not in st.session_state:
         st.session_state.snapshots = []
+    if 'live_detection_active' not in st.session_state:
+        st.session_state.live_detection_active = False
+    if 'detection_interval' not in st.session_state:
+        st.session_state.detection_interval = 2  # seconds
     
-    # Create columns for buttons
+    st.subheader("🎥 Live Tablet Detection")
+    st.info("📌 **How it works**: Enable live detection, then the camera will automatically refresh and detect tablets at set intervals. Click 'Capture & Count' when you see tablets to save a snapshot with bounding boxes.")
+    
+    # Control panel
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔴 Stop Detection", type="secondary"):
-            st.session_state.detection_active = False
+        if st.button("🟢 Start Live Detection", type="primary"):
+            st.session_state.live_detection_active = True
             st.rerun()
     
     with col2:
-        snapshot_button = st.button("📸 Take Snapshot", type="primary", 
-                                   disabled=st.session_state.current_frame_with_boxes is None)
+        if st.button("🔴 Stop Live Detection", type="secondary"):
+            st.session_state.live_detection_active = False
+            st.rerun()
     
     with col3:
-        if st.button("🗑️ Clear Snapshots", type="secondary"):
+        if st.button("🗑️ Clear Snapshots"):
             st.session_state.snapshots = []
             st.rerun()
     
-    # Display current detection count
-    count_placeholder = st.empty()
+    # Settings
+    st.session_state.detection_interval = st.slider(
+        "Auto-refresh interval (seconds)", 
+        min_value=1, max_value=10, 
+        value=st.session_state.detection_interval
+    )
     
-    # Main video display
-    video_placeholder = st.empty()
-    
-    try:
-        cap = cv2.VideoCapture(0)
+    # Live detection area
+    if st.session_state.live_detection_active:
+        st.success("🔴 **LIVE DETECTION ACTIVE** - Camera will refresh automatically")
         
-        if not cap.isOpened():
-            st.error("Could not open webcam. Please check if your camera is available and not being used by another application.")
-            return
+        # Auto-refresh camera input
+        camera_key = f"live_camera_{int(time.time() // st.session_state.detection_interval)}"
         
-        # Set camera properties for better performance
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 30)
+        camera_image = st.camera_input(
+            "📷 Live Camera Feed (Auto-refreshing)", 
+            key=camera_key,
+            help="Position tablets in view and wait for auto-refresh"
+        )
         
-        frame_count = 0
-        detection_interval = 10  # Detect every 10 frames for better performance
-        
-        while st.session_state.detection_active:
-            ret, frame = cap.read()
-            if not ret:
-                st.error("Failed to capture frame from webcam.")
-                break
+        if camera_image is not None:
+            # Process the image
+            image = Image.open(camera_image)
             
-            frame_count += 1
+            # Automatic detection
+            with st.spinner("🔍 Detecting tablets..."):
+                count, boxed_image = model_count_tablets_with_boxes(image, model)
             
-            # Run detection every few frames to improve performance
-            if frame_count % detection_interval == 0:
-                try:
-                    # Run YOLO detection
-                    results = model(frame, conf=confidence, verbose=False)
-                    
-                    # Create a copy of frame for drawing
-                    display_frame = frame.copy()
-                    tablet_count = 0
-                    
-                    if results[0].boxes is not None:
-                        tablet_count = len(results[0].boxes)
-                        
-                        # Draw bounding boxes and labels
-                        for i, box in enumerate(results[0].boxes.xyxy):
-                            x1, y1, x2, y2 = map(int, box)
-                            
-                            # Draw bounding box
-                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            
-                            # Draw tablet number
-                            label = f"Tablet {i+1}"
-                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                            cv2.rectangle(display_frame, (x1, y1-label_size[1]-10), 
-                                        (x1+label_size[0], y1), (0, 255, 0), -1)
-                            cv2.putText(display_frame, label, (x1, y1-5),
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-                    
-                    # Add count display on frame
-                    count_text = f"Tablets Detected: {tablet_count}"
-                    cv2.rectangle(display_frame, (10, 10), (350, 50), (0, 0, 0), -1)
-                    cv2.putText(display_frame, count_text, (20, 35),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                    
-                    # Update session state
-                    st.session_state.current_tablet_count = tablet_count
-                    st.session_state.current_frame_with_boxes = display_frame.copy()
-                    
-                except Exception as e:
-                    st.error(f"Detection error: {str(e)}")
-                    display_frame = frame.copy()
-            else:
-                # Use the last detection result
-                display_frame = st.session_state.current_frame_with_boxes if st.session_state.current_frame_with_boxes is not None else frame
+            # Display results
+            col1, col2 = st.columns([3, 1])
             
-            # Convert BGR to RGB for Streamlit display
-            frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+            with col1:
+                st.image(boxed_image, caption=f"🎯 Live Detection: {count} tablets found", use_container_width=True)
             
-            # Display the frame
-            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-            
-            # Update count display
-            count_placeholder.metric("Current Detection", f"{st.session_state.current_tablet_count} tablets")
-            
-            # Handle snapshot button
-            if snapshot_button and st.session_state.current_frame_with_boxes is not None:
-                # Convert frame to PIL Image for saving
-                snapshot_rgb = cv2.cvtColor(st.session_state.current_frame_with_boxes, cv2.COLOR_BGR2RGB)
-                snapshot_pil = Image.fromarray(snapshot_rgb)
+            with col2:
+                st.metric("Tablets Detected", count)
                 
-                # Create snapshot data
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                snapshot_data = {
-                    'image': snapshot_pil,
-                    'count': st.session_state.current_tablet_count,
-                    'timestamp': timestamp
-                }
+                # Capture button
+                if st.button("📸 Capture & Save This Detection", type="primary"):
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    snapshot_data = {
+                        'image': boxed_image,
+                        'original_image': image,
+                        'count': count,
+                        'timestamp': timestamp
+                    }
+                    st.session_state.snapshots.append(snapshot_data)
+                    st.success(f"✅ Snapshot saved! {count} tablets detected at {timestamp}")
+                    st.rerun()
                 
-                st.session_state.snapshots.append(snapshot_data)
-                st.success(f"Snapshot saved! Detected {st.session_state.current_tablet_count} tablets at {timestamp}")
-                st.rerun()
-            
-            # Small delay to prevent excessive CPU usage
-            time.sleep(0.03)
+                # Status indicator
+                if count > 0:
+                    st.success(f"✅ {count} tablets detected!")
+                else:
+                    st.info("👀 Move tablets into view...")
+        
+        # Auto-refresh mechanism
+        time.sleep(0.1)  # Small delay to prevent excessive CPU usage
+        st.rerun()  # This will refresh the camera input
     
-    except Exception as e:
-        st.error(f"Camera error: {str(e)}")
-    finally:
-        if 'cap' in locals():
-            cap.release()
+    else:
+        st.info("Click 'Start Live Detection' to begin automatic tablet detection")
+        
+        # Manual camera input when live detection is off
+        manual_camera = st.camera_input("📷 Manual Camera (Take photo manually)")
+        
+        if manual_camera is not None:
+            image = Image.open(manual_camera)
+            
+            if st.button("🔍 Count Tablets in This Photo", type="primary"):
+                count, boxed_image = model_count_tablets_with_boxes(image, model)
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.image(boxed_image, caption=f"Detection Result: {count} tablets", use_container_width=True)
+                with col2:
+                    st.metric("Tablets Found", count)
+                    
+                    if st.button("💾 Save This Result"):
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        snapshot_data = {
+                            'image': boxed_image,
+                            'original_image': image,
+                            'count': count,
+                            'timestamp': timestamp
+                        }
+                        st.session_state.snapshots.append(snapshot_data)
+                        st.success("Snapshot saved!")
+                        st.rerun()
 
 # ==================== Display Snapshots ====================
 def display_snapshots():
-    """Display saved snapshots"""
+    """Display saved snapshots with enhanced features"""
     if st.session_state.get('snapshots'):
-        st.subheader("📷 Saved Snapshots")
+        st.subheader("📷 Saved Detection Results")
+        st.write(f"Total snapshots: {len(st.session_state.snapshots)}")
         
+        # Summary statistics
+        if st.session_state.snapshots:
+            total_tablets = sum(snap['count'] for snap in st.session_state.snapshots)
+            avg_tablets = total_tablets / len(st.session_state.snapshots)
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Snapshots", len(st.session_state.snapshots))
+            col2.metric("Total Tablets Counted", total_tablets)
+            col3.metric("Average per Snapshot", f"{avg_tablets:.1f}")
+        
+        # Display snapshots
         for i, snapshot in enumerate(reversed(st.session_state.snapshots)):
-            with st.expander(f"Snapshot {len(st.session_state.snapshots)-i} - {snapshot['count']} tablets - {snapshot['timestamp']}"):
+            snapshot_num = len(st.session_state.snapshots) - i
+            
+            with st.expander(f"📸 Snapshot #{snapshot_num} - {snapshot['count']} tablets - {snapshot['timestamp']}", expanded=i==0):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
-                    st.image(snapshot['image'], caption=f"Detected: {snapshot['count']} tablets", use_container_width=True)
+                    # Show both original and detection result
+                    tab1, tab2 = st.tabs(["🎯 With Detection", "📷 Original"])
+                    
+                    with tab1:
+                        st.image(snapshot['image'], caption=f"Detected: {snapshot['count']} tablets", use_container_width=True)
+                    
+                    with tab2:
+                        st.image(snapshot['original_image'], caption="Original image", use_container_width=True)
                 
                 with col2:
-                    st.metric("Tablets", snapshot['count'])
-                    st.text(f"Time: {snapshot['timestamp']}")
+                    st.metric("Tablets Detected", snapshot['count'])
+                    st.text(f"📅 {snapshot['timestamp']}")
                     
-                    # Download button for individual snapshot
-                    img_buffer = io.BytesIO()
-                    snapshot['image'].save(img_buffer, format='PNG')
-                    img_buffer.seek(0)
+                    # Download buttons
+                    for img_type, img_key, label in [
+                        ("detection", 'image', "🎯 Download with Boxes"),
+                        ("original", 'original_image', "📷 Download Original")
+                    ]:
+                        img_buffer = io.BytesIO()
+                        snapshot[img_key].save(img_buffer, format='PNG')
+                        img_buffer.seek(0)
+                        
+                        st.download_button(
+                            label=label,
+                            data=img_buffer.getvalue(),
+                            file_name=f"tablet_{img_type}_{snapshot_num}_{snapshot['timestamp'].replace(':', '-').replace(' ', '_')}.png",
+                            mime="image/png",
+                            key=f"download_{img_type}_{i}"
+                        )
                     
-                    st.download_button(
-                        label="Download Image",
-                        data=img_buffer.getvalue(),
-                        file_name=f"tablet_snapshot_{len(st.session_state.snapshots)-i}_{snapshot['timestamp'].replace(':', '-')}.png",
-                        mime="image/png"
-                    )
+                    # Delete button
+                    if st.button("🗑️ Delete", key=f"delete_{i}"):
+                        st.session_state.snapshots.remove(snapshot)
+                        st.rerun()
 
 # ---------------- STREAMLIT UI ----------------
 st.title("💊 Tablet Counter (80)")
@@ -265,5 +278,6 @@ elif mode == "Live Webcam":
 
     if st.button("Stop Live Detection", type="secondary"):
         st.session_state["stop_live"] = True
+
 
 
