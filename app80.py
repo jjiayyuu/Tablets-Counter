@@ -2,7 +2,6 @@ import streamlit as st
 from PIL import Image, ImageDraw
 import numpy as np
 from ultralytics import YOLO
-import cv2
 import time
 from datetime import datetime
 import io
@@ -13,7 +12,7 @@ st.set_page_config(page_title="Tablet Counter", layout="wide")
 @st.cache_resource
 def load_model():
     try:
-        model = YOLO("best80.pt")  # Make sure best50.pt is in the same folder
+        model = YOLO("best80.pt")  # Make sure best80.pt is in the same folder
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
@@ -24,28 +23,30 @@ def model_count_tablets_with_boxes(image, model):
     """Run YOLO detection, count tablets, and draw bounding boxes"""
     if model is None:
         return 0, image
-
+    
     try:
         img_array = np.array(image)
-        results = model(img_array)
-
+        results = model(img_array, conf=0.45, verbose=False)
         tablet_count = 0
         draw_image = image.copy()
         draw = ImageDraw.Draw(draw_image)
-
+        
         for result in results:
             if result.boxes is not None:
                 tablet_count += len(result.boxes)
-                for box in result.boxes.xyxy:  # xyxy = [x1, y1, x2, y2]
+                for i, box in enumerate(result.boxes.xyxy):  # xyxy = [x1, y1, x2, y2]
                     x1, y1, x2, y2 = map(int, box)
+                    # Draw bounding box
                     draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
-
+                    # Add tablet number
+                    draw.text((x1, y1-20), f"Tablet {i+1}", fill="red")
+        
         return tablet_count, draw_image
     except Exception as e:
         st.error(f"Error during inference: {str(e)}")
         return 0, image
 
-# ==================== Live Webcam Detection ====================
+# ==================== Live Detection with Streamlit Camera ====================
 def live_detection_interface(model):
     """Live detection interface using Streamlit's camera input with auto-refresh"""
     
@@ -229,56 +230,89 @@ def display_snapshots():
                         st.rerun()
 
 # ---------------- STREAMLIT UI ----------------
-st.title("💊 Tablet Counter (80...)")
-st.write("1. Upload an image 🖼️")
-st.write("2. Use camera 📸 to take an image")
-st.write("3. Live webcam 🎥 detection")
+st.title("💊 Tablet Counter (80)")
+st.markdown("""
+### Features:
+1. 🖼️ **Upload Image** - Upload and analyze tablet images
+2. 📸 **Camera Snapshot** - Take a single photo and analyze
+3. 🎥 **Live Detection** - Real-time detection with auto-refresh camera
+""")
 
 # Load model
-with st.spinner("Loading model..."):
+with st.spinner("🔄 Loading AI model..."):
     model = load_model()
 
 if model is None:
+    st.error("❌ Failed to load the detection model. Please check if 'best80.pt' file exists.")
     st.stop()
 
+st.success("✅ Model loaded successfully!")
+
 # Mode Selection
-mode = st.radio("Select Mode: ", ["Upload Image", "Camera Snapshot", "Live Webcam"])
+mode = st.selectbox(
+    "🎯 Select Detection Mode:", 
+    ["Upload Image", "Camera Snapshot", "Live Detection"],
+    help="Choose how you want to provide images for tablet counting"
+)
 
 # ========== Upload Image ==========
 if mode == "Upload Image":
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    st.subheader("🖼️ Upload Image Analysis")
+    uploaded_file = st.file_uploader(
+        "Choose an image file", 
+        type=["jpg", "jpeg", "png"],
+        help="Upload an image containing tablets for analysis"
+    )
+    
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        if st.button("Count Tablets from File", type="primary"):
-            count, boxed_image = model_count_tablets_with_boxes(image, model)
-            st.image(boxed_image, caption=f"Detected Tablets: {count}", use_container_width=True)
+        
+        # Show preview
+        st.image(image, caption="Uploaded Image", use_container_width=True)
+        
+        if st.button("🔍 Count Tablets", type="primary"):
+            with st.spinner("Analyzing image..."):
+                count, boxed_image = model_count_tablets_with_boxes(image, model)
+            
+            st.image(boxed_image, caption=f"Detection Result: {count} tablets found", use_container_width=True)
+            
             if count > 0:
-                st.success(f"Number of tablets detected: {count}")
+                st.success(f"✅ Found {count} tablet(s) in the image!")
             else:
-                st.warning("No tablets detected.")
+                st.warning("⚠️ No tablets detected. Try adjusting lighting or camera angle.")
 
 # ========== Camera Snapshot ==========
 elif mode == "Camera Snapshot":
-    camera_file = st.camera_input("Take a photo with your camera")
+    st.subheader("📸 Camera Snapshot Analysis")
+    
+    camera_file = st.camera_input(
+        "Take a photo of tablets",
+        help="Position tablets clearly in the camera view and take a photo"
+    )
+    
     if camera_file is not None:
         image = Image.open(camera_file)
-        if st.button("Count Tablets from Camera", type="primary"):
-            count, boxed_image = model_count_tablets_with_boxes(image, model)
-            st.image(boxed_image, caption=f"Detected Tablets: {count}", use_container_width=True)
+        
+        if st.button("🔍 Analyze This Photo", type="primary"):
+            with st.spinner("Analyzing photo..."):
+                count, boxed_image = model_count_tablets_with_boxes(image, model)
+            
+            st.image(boxed_image, caption=f"Analysis Result: {count} tablets detected", use_container_width=True)
+            
             if count > 0:
-                st.success(f"Number of tablets detected: {count}")
+                st.success(f"✅ Detected {count} tablet(s)!")
             else:
-                st.warning("No tablets detected.")
+                st.warning("⚠️ No tablets detected.")
 
-# ========== Live Webcam ==========
-elif mode == "Live Webcam":
-    if st.button("Start Live Detection", type="primary"):
-        st.session_state["stop_live"] = False
-        live_pill_detection_streamlit(model)
+# ========== Live Detection ==========
+elif mode == "Live Detection":
+    live_detection_interface(model)
+    
+    # Display snapshots below live detection
+    st.divider()
+    display_snapshots()
 
-    if st.button("Stop Live Detection", type="secondary"):
-        st.session_state["stop_live"] = True
-
-
-
-
+# Footer
+st.divider()
+st.markdown("---")
+st.markdown("💡 **Tips**: Ensure good lighting and clear view of tablets for best detection results.")
