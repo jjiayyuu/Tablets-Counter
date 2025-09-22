@@ -2,6 +2,10 @@ import streamlit as st
 from PIL import Image, ImageDraw
 import numpy as np
 from ultralytics import YOLO
+import cv2
+import time
+from datetime import datetime
+import io
 
 st.set_page_config(page_title="Tablet Counter", layout="wide")
 
@@ -43,39 +47,173 @@ def model_count_tablets_with_boxes(image, model):
 
 # ==================== Live Webcam Detection ====================
 def live_pill_detection_streamlit(model, confidence=0.45):
-    """Live pill detection streamed inside Streamlit"""
-    cap = cv2.VideoCapture(0)
-    stframe = st.empty()
+    """Enhanced live pill detection with auto-detection and snapshot capability"""
+    
+    # Initialize session state variables
+    if 'detection_active' not in st.session_state:
+        st.session_state.detection_active = True
+    if 'current_frame_with_boxes' not in st.session_state:
+        st.session_state.current_frame_with_boxes = None
+    if 'current_tablet_count' not in st.session_state:
+        st.session_state.current_tablet_count = 0
+    if 'snapshots' not in st.session_state:
+        st.session_state.snapshots = []
+    
+    # Create columns for buttons
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔴 Stop Detection", type="secondary"):
+            st.session_state.detection_active = False
+            st.rerun()
+    
+    with col2:
+        snapshot_button = st.button("📸 Take Snapshot", type="primary", 
+                                   disabled=st.session_state.current_frame_with_boxes is None)
+    
+    with col3:
+        if st.button("🗑️ Clear Snapshots", type="secondary"):
+            st.session_state.snapshots = []
+            st.rerun()
+    
+    # Display current detection count
+    count_placeholder = st.empty()
+    
+    # Main video display
+    video_placeholder = st.empty()
+    
+    try:
+        cap = cv2.VideoCapture(0)
+        
+        if not cap.isOpened():
+            st.error("Could not open webcam. Please check if your camera is available and not being used by another application.")
+            return
+        
+        # Set camera properties for better performance
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        
+        frame_count = 0
+        detection_interval = 10  # Detect every 10 frames for better performance
+        
+        while st.session_state.detection_active:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("Failed to capture frame from webcam.")
+                break
+            
+            frame_count += 1
+            
+            # Run detection every few frames to improve performance
+            if frame_count % detection_interval == 0:
+                try:
+                    # Run YOLO detection
+                    results = model(frame, conf=confidence, verbose=False)
+                    
+                    # Create a copy of frame for drawing
+                    display_frame = frame.copy()
+                    tablet_count = 0
+                    
+                    if results[0].boxes is not None:
+                        tablet_count = len(results[0].boxes)
+                        
+                        # Draw bounding boxes and labels
+                        for i, box in enumerate(results[0].boxes.xyxy):
+                            x1, y1, x2, y2 = map(int, box)
+                            
+                            # Draw bounding box
+                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            
+                            # Draw tablet number
+                            label = f"Tablet {i+1}"
+                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                            cv2.rectangle(display_frame, (x1, y1-label_size[1]-10), 
+                                        (x1+label_size[0], y1), (0, 255, 0), -1)
+                            cv2.putText(display_frame, label, (x1, y1-5),
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+                    
+                    # Add count display on frame
+                    count_text = f"Tablets Detected: {tablet_count}"
+                    cv2.rectangle(display_frame, (10, 10), (350, 50), (0, 0, 0), -1)
+                    cv2.putText(display_frame, count_text, (20, 35),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    
+                    # Update session state
+                    st.session_state.current_tablet_count = tablet_count
+                    st.session_state.current_frame_with_boxes = display_frame.copy()
+                    
+                except Exception as e:
+                    st.error(f"Detection error: {str(e)}")
+                    display_frame = frame.copy()
+            else:
+                # Use the last detection result
+                display_frame = st.session_state.current_frame_with_boxes if st.session_state.current_frame_with_boxes is not None else frame
+            
+            # Convert BGR to RGB for Streamlit display
+            frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+            
+            # Display the frame
+            video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+            
+            # Update count display
+            count_placeholder.metric("Current Detection", f"{st.session_state.current_tablet_count} tablets")
+            
+            # Handle snapshot button
+            if snapshot_button and st.session_state.current_frame_with_boxes is not None:
+                # Convert frame to PIL Image for saving
+                snapshot_rgb = cv2.cvtColor(st.session_state.current_frame_with_boxes, cv2.COLOR_BGR2RGB)
+                snapshot_pil = Image.fromarray(snapshot_rgb)
+                
+                # Create snapshot data
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                snapshot_data = {
+                    'image': snapshot_pil,
+                    'count': st.session_state.current_tablet_count,
+                    'timestamp': timestamp
+                }
+                
+                st.session_state.snapshots.append(snapshot_data)
+                st.success(f"Snapshot saved! Detected {st.session_state.current_tablet_count} tablets at {timestamp}")
+                st.rerun()
+            
+            # Small delay to prevent excessive CPU usage
+            time.sleep(0.03)
+    
+    except Exception as e:
+        st.error(f"Camera error: {str(e)}")
+    finally:
+        if 'cap' in locals():
+            cap.release()
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        results = model(frame, conf=confidence, verbose=False)
-        pill_count = len(results[0].boxes) if results[0].boxes is not None else 0
-
-        if results[0].boxes is not None:
-            for i, box in enumerate(results[0].boxes.xyxy):
-                x1, y1, x2, y2 = map(int, box)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"{i+1}", (x1, y1-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        cv2.putText(frame, f"Pills: {pill_count}", (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-
-        # Convert BGR to RGB for Streamlit
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        stframe.image(frame_rgb, channels="RGB", use_container_width=True)
-
-        # Stop live feed when user clicks 'STOP' button
-        if st.session_state.get("stop_live", False):
-            break
-
-        time.sleep(0.03)
-
-    cap.release()
+# ==================== Display Snapshots ====================
+def display_snapshots():
+    """Display saved snapshots"""
+    if st.session_state.get('snapshots'):
+        st.subheader("📷 Saved Snapshots")
+        
+        for i, snapshot in enumerate(reversed(st.session_state.snapshots)):
+            with st.expander(f"Snapshot {len(st.session_state.snapshots)-i} - {snapshot['count']} tablets - {snapshot['timestamp']}"):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.image(snapshot['image'], caption=f"Detected: {snapshot['count']} tablets", use_container_width=True)
+                
+                with col2:
+                    st.metric("Tablets", snapshot['count'])
+                    st.text(f"Time: {snapshot['timestamp']}")
+                    
+                    # Download button for individual snapshot
+                    img_buffer = io.BytesIO()
+                    snapshot['image'].save(img_buffer, format='PNG')
+                    img_buffer.seek(0)
+                    
+                    st.download_button(
+                        label="Download Image",
+                        data=img_buffer.getvalue(),
+                        file_name=f"tablet_snapshot_{len(st.session_state.snapshots)-i}_{snapshot['timestamp'].replace(':', '-')}.png",
+                        mime="image/png"
+                    )
 
 # ---------------- STREAMLIT UI ----------------
 st.title("💊 Tablet Counter (80)")
@@ -127,4 +265,5 @@ elif mode == "Live Webcam":
 
     if st.button("Stop Live Detection", type="secondary"):
         st.session_state["stop_live"] = True
+
 
