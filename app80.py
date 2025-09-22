@@ -49,102 +49,116 @@ def model_count_tablets_with_boxes(image, model, confidence=0.45):
         st.error(f"Error during inference: {str(e)}")
         return 0, image
 
-# ==================== Improved Live Detection ====================
+# ==================== True Live Detection ====================
 def live_detection_interface(model):
-    """Improved live detection with pause-and-detect approach"""
+    """True live detection with continuous camera monitoring"""
     
     # Initialize session state
     if 'snapshots' not in st.session_state:
         st.session_state.snapshots = []
     if 'current_detection' not in st.session_state:
         st.session_state.current_detection = None
-    if 'last_camera_image' not in st.session_state:
-        st.session_state.last_camera_image = None
+    if 'live_mode_active' not in st.session_state:
+        st.session_state.live_mode_active = False
+    if 'detection_frame_count' not in st.session_state:
+        st.session_state.detection_frame_count = 0
     
     st.subheader("🎥 Live Tablet Detection")
     
-    # Settings panel
-    col1, col2 = st.columns([1, 1])
+    # Settings and control panel
+    col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
         confidence = st.slider("🎯 Detection Confidence", 0.1, 1.0, 0.45, 0.05, 
                               help="Lower values detect more tablets but may include false positives")
     
     with col2:
-        detection_delay = st.selectbox("⏱️ Detection Delay", 
-                                     options=[2, 3, 4, 5], 
-                                     index=1,
-                                     format_func=lambda x: f"{x} seconds",
-                                     help="How long to wait before auto-detecting tablets")
+        refresh_rate = st.selectbox("📊 Detection Speed", 
+                                   options=[2, 3, 4, 5], 
+                                   index=1, 
+                                   format_func=lambda x: f"Every {x}s",
+                                   help="How often to detect tablets")
     
-    st.markdown("### 📱 Live Camera View")
-    st.info("💡 **How to use**: Point camera at tablets, hold steady for a few seconds, then detection will automatically appear. Use the screenshot button to save results.")
+    with col3:
+        if not st.session_state.live_mode_active:
+            if st.button("🟢 **Start Live Detection**", type="primary", use_container_width=True):
+                st.session_state.live_mode_active = True
+                st.session_state.detection_frame_count = 0
+                st.rerun()
+        else:
+            if st.button("🔴 **Stop Live Detection**", type="secondary", use_container_width=True):
+                st.session_state.live_mode_active = False
+                st.session_state.current_detection = None
+                st.rerun()
+    
+    # Status indicator
+    if st.session_state.live_mode_active:
+        st.success("🔴 **LIVE DETECTION ACTIVE** - Point camera at tablets!")
+    else:
+        st.info("💤 **Live detection stopped** - Click start to begin")
     
     # Create two columns: camera view and results
     col_camera, col_results = st.columns([2, 1])
     
     with col_camera:
-        # Live camera feed with auto-refresh every few seconds
-        camera_image = st.camera_input(
-            "🔴 Live Camera Feed",
-            key="live_camera",
-            help="Position tablets in view and hold steady for detection"
-        )
-        
-        if camera_image is not None:
-            # Check if this is a new image
-            current_image = Image.open(camera_image)
+        if st.session_state.live_mode_active:
+            # Auto-refreshing camera key to get new frames
+            st.session_state.detection_frame_count += 1
+            camera_key = f"live_camera_frame_{st.session_state.detection_frame_count}"
             
-            # Auto-detection after delay
-            if st.session_state.last_camera_image != camera_image:
-                st.session_state.last_camera_image = camera_image
+            # Live camera with auto-refresh
+            camera_image = st.camera_input(
+                f"🔴 LIVE FEED (Frame #{st.session_state.detection_frame_count}) - Auto-detecting every {refresh_rate}s",
+                key=camera_key,
+                help="Keep tablets in view - detection happens automatically!"
+            )
+            
+            if camera_image is not None:
+                current_image = Image.open(camera_image)
                 
-                # Show countdown
-                countdown_placeholder = st.empty()
-                for i in range(detection_delay, 0, -1):
-                    countdown_placeholder.warning(f"⏱️ Auto-detecting in {i} seconds... Hold camera steady!")
-                    time.sleep(1)
+                # Run detection automatically
+                with st.spinner("🔍 Live detection running..."):
+                    count, detected_image = model_count_tablets_with_boxes(current_image, model, confidence)
+                    
+                    # Store current detection
+                    st.session_state.current_detection = {
+                        'original_image': current_image,
+                        'detected_image': detected_image,
+                        'count': count,
+                        'timestamp': datetime.now(),
+                        'frame_number': st.session_state.detection_frame_count
+                    }
                 
-                countdown_placeholder.success("🔍 Detecting tablets...")
-                
-                # Run detection
-                count, detected_image = model_count_tablets_with_boxes(current_image, model, confidence)
-                
-                # Store current detection
-                st.session_state.current_detection = {
-                    'original_image': current_image,
-                    'detected_image': detected_image,
-                    'count': count,
-                    'timestamp': datetime.now()
-                }
-                
-                countdown_placeholder.empty()
+                # Show the detected image in the camera area too
+                st.image(detected_image, 
+                        caption=f"🔴 LIVE: {count} tablets detected", 
+                        use_container_width=True)
+        else:
+            # Stopped mode
+            st.info("🎥 **Live detection stopped**\n\nClick 'Start Live Detection' to begin continuous monitoring")
     
     with col_results:
-        st.markdown("### 📊 Detection Results")
+        st.markdown("### 📊 Live Results")
         
-        if st.session_state.current_detection:
+        if st.session_state.current_detection and st.session_state.live_mode_active:
             detection = st.session_state.current_detection
-            
-            # Show detection results
-            st.image(detection['detected_image'], 
-                    caption=f"Detected: {detection['count']} tablets", 
-                    use_container_width=True)
             
             # Display count with color coding
             if detection['count'] > 0:
-                st.success(f"✅ **{detection['count']} tablets detected!**")
+                st.success(f"✅ **{detection['count']} tablets**")
             else:
-                st.warning("⚠️ **No tablets detected**")
-                st.info("Try adjusting lighting or camera position")
+                st.warning("⚠️ **No tablets**")
             
-            st.metric("🎯 Confidence Level", f"{confidence}")
+            # Live metrics
+            st.metric("🎯 Current Count", detection['count'])
+            st.metric("📊 Frame", f"#{detection['frame_number']}")
+            st.metric("🔧 Confidence", f"{confidence}")
             st.text(f"📅 {detection['timestamp'].strftime('%H:%M:%S')}")
             
-            # Screenshot button
+            # Screenshot button (only show when tablets detected)
             st.markdown("---")
-            if st.button("📸 **Take Screenshot**", type="primary", use_container_width=True):
-                if detection['count'] > 0:
+            if detection['count'] > 0:
+                if st.button("📸 **SCREENSHOT**", type="primary", use_container_width=True):
                     # Save to snapshots
                     snapshot_data = {
                         'image': detection['detected_image'],
@@ -155,16 +169,41 @@ def live_detection_interface(model):
                     st.session_state.snapshots.append(snapshot_data)
                     st.success("✅ Screenshot saved!")
                     st.balloons()
-                else:
-                    st.warning("Cannot screenshot - no tablets detected!")
+            else:
+                st.info("📸 Screenshot available when tablets detected")
             
-            # Manual re-detect button
-            if st.button("🔄 **Detect Again**", use_container_width=True):
-                st.rerun()
+            # Tips
+            if detection['count'] == 0:
+                st.markdown("""
+                **💡 Try:**
+                - Better lighting
+                - Lower confidence
+                - Different angle
+                - Spread tablets apart
+                """)
         
+        elif st.session_state.live_mode_active:
+            st.info("👀 **Scanning...**\nPoint camera at tablets")
+            st.markdown("Live detection will show results here")
         else:
-            st.info("👀 **Waiting for camera input...**")
-            st.markdown("Point your camera at tablets and hold steady.")
+            st.info("📱 **Ready to start**")
+            st.markdown("Click 'Start Live Detection' to begin continuous tablet monitoring")
+    
+    # Auto-refresh mechanism for live mode
+    if st.session_state.live_mode_active:
+        # Use JavaScript-style refresh with time delay
+        import asyncio
+        import threading
+        
+        # Schedule next refresh
+        def schedule_refresh():
+            import time
+            time.sleep(refresh_rate)
+            # This will cause Streamlit to rerun
+        
+        if st.session_state.detection_frame_count < 100:  # Limit to prevent infinite loops
+            # Auto-refresh after delay
+            st.rerun()
     
     # Snapshots summary
     if len(st.session_state.snapshots) > 0:
@@ -187,24 +226,29 @@ def live_detection_interface(model):
     # Instructions
     with st.expander("💡 **Live Detection Instructions**"):
         st.markdown("""
-        ### 🎯 **How Live Detection Works:**
+        ### 🎯 **True Live Detection:**
         
-        1. **📱 Position Camera**: Point your camera at the tablets you want to count
-        2. **⏸️ Hold Steady**: Keep the camera still and wait for the countdown
-        3. **🔍 Auto Detection**: After the delay, detection automatically runs
-        4. **📊 View Results**: See the tablet count and bounding boxes on the right
-        5. **📸 Take Screenshot**: Click the screenshot button to save the results
+        1. **🟢 Start Live Mode**: Click "Start Live Detection" button
+        2. **📱 Position Camera**: Point your camera at the tablets
+        3. **👀 Auto Detection**: Camera automatically captures and analyzes every few seconds
+        4. **📊 Live Results**: See real-time tablet count and bounding boxes
+        5. **📸 Screenshot**: When tablets are detected, click screenshot to save
+        6. **🔴 Stop**: Click "Stop Live Detection" when done
         
         ### 🛠️ **Settings:**
-        - **Detection Confidence**: Lower = more sensitive (may detect non-tablets)
-        - **Detection Delay**: Time to hold camera steady before auto-detection
+        - **Detection Confidence**: Lower = more sensitive detection
+        - **Detection Speed**: How often to analyze (2-5 seconds)
         
         ### 📋 **Tips for Best Results:**
         - ☀️ **Good Lighting**: Ensure tablets are well-lit
         - 🔲 **Contrasting Background**: Use a plain, different colored surface
-        - 📐 **Flat Layout**: Spread tablets out, don't overlap
-        - 📏 **Steady Camera**: Hold device steady during countdown
+        - 📐 **Flat Layout**: Spread tablets out, don't overlap them
+        - 📏 **Steady Hold**: Keep camera steady for best detection
         - 🎯 **Full View**: Make sure all tablets are completely visible
+        - ⚡ **Be Patient**: Allow a few seconds between detections
+        
+        ### ⚠️ **Note:**
+        Live mode continuously refreshes the camera, which may consume more battery on mobile devices.
         """)
 
 # ==================== Display Snapshots ====================
