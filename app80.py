@@ -229,7 +229,7 @@ def display_snapshots():
                         st.rerun()
 
 # ---------------- STREAMLIT UI ----------------
-st.title("💊 Tablet Counter (80)")
+st.title("💊 Tablet Counter (80...)")
 st.write("1. Upload an image 🖼️")
 st.write("2. Use camera 📸 to take an image")
 st.write("3. Live webcam 🎥 detection")
@@ -278,6 +278,7 @@ elif mode == "Live Webcam":
 
     if st.button("Stop Live Detection", type="secondary"):
         st.session_state["stop_live"] = True
+
 
 
 
