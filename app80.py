@@ -40,7 +40,7 @@ def model_count_tablets_with_boxes(image, model):
         return 0, image
 
 # ---------------- STREAMLIT UI ----------------
-st.title("Tablet Counter")
+st.title("Tablet Counter 80")
 st.write("Upload an image OR use your camera to count tablets")
 
 # Load model
@@ -82,4 +82,5 @@ elif use_camera:
                 st.success(f"Number of tablets detected: {count}")
             else:
                 st.warning("No tablets detected")
+
 
