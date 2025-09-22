@@ -8,3 +8,8 @@ numpy
 opencv-python-headless
 matplotlib
 scipy
+pandas
+pyyaml
+requests
+tqdm
+seaborn
